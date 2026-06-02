@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  user
+  moderator
+  admin
+}
+
+enum UserStatus {
+  active
+  banned
+}
+
+enum NotificationType {
+  reply
+  mention
+  like
+}
+
+model User {
+  id            String     @id @default(uuid())
+  username      String     @unique
+  email         String     @unique
+  passwordHash  String     @map("password_hash")
+  avatar        String?
+  signature     String?
+  role          UserRole   @default(user)
+  status        UserStatus @default(active)
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+  lastActiveAt  DateTime   @default(now()) @map("last_active_at")
+
+  threads              Thread[]           @relation("ThreadAuthor")
+  lastReplyThreads     Thread[]           @relation("ThreadLastReplyUser")
+  posts                Post[]
+  attachments          Attachment[]
+  likes                PostLike[]
+  notifications        Notification[]     @relation("NotificationRecipient")
+  actedNotifications   Notification[]     @relation("NotificationActor")
+  boardSubs            UserBoardSubscription[]
+
+  @@map("users")
+}
+
+model Board {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  parentId    String?  @map("parent_id")
+  sortOrder   Int      @default(0) @map("sort_order")
+  threadCount Int      @default(0) @map("thread_count")
+  postCount   Int      @default(0) @map("post_count")
+  isHidden    Boolean  @default(false) @map("is_hidden")
+
+  parent   Board?   @relation("BoardHierarchy", fields: [parentId], references: [id])
+  children Board[]  @relation("BoardHierarchy")
+  threads  Thread[]
+  posts    Post[]
+  subscribers UserBoardSubscription[]
+
+  @@map("boards")
+}
+
+model Thread {
+  id              String    @id @default(uuid())
+  boardId         String    @map("board_id")
+  authorId        String    @map("author_id")
+  title           String
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  lastReplyAt     DateTime  @default(now()) @map("last_reply_at")
+  lastReplyUserId String?   @map("last_reply_user_id")
+  viewCount       Int       @default(0) @map("view_count")
+  replyCount      Int       @default(0) @map("reply_count")
+  isPinned        Boolean   @default(false) @map("is_pinned")
+  isLocked        Boolean   @default(false) @map("is_locked")
+  isDigest        Boolean   @default(false) @map("is_digest")
+  tags            String[]
+
+  board      Board  @relation(fields: [boardId], references: [id])
+  author     User   @relation("ThreadAuthor", fields: [authorId], references: [id])
+  lastReplyUser User? @relation("ThreadLastReplyUser", fields: [lastReplyUserId], references: [id])
+  posts      Post[]
+  notifications Notification[]
+
+  @@index([boardId, lastReplyAt(sort: Desc)])
+  @@map("threads")
+}
+
+model Post {
+  id          String   @id @default(uuid())
+  threadId    String   @map("thread_id")
+  boardId     String   @map("board_id")
+  authorId    String   @map("author_id")
+  content     Json
+  plainText   String   @map("plain_text")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  editCount   Int      @default(0) @map("edit_count")
+  isDeleted   Boolean  @default(false) @map("is_deleted")
+  isFirstPost Boolean  @default(false) @map("is_first_post")
+  parentPostId String?  @map("parent_post_id")
+
+  thread      Thread       @relation(fields: [threadId], references: [id])
+  board       Board        @relation(fields: [boardId], references: [id])
+  author      User         @relation(fields: [authorId], references: [id])
+  parentPost  Post?        @relation("PostReplies", fields: [parentPostId], references: [id])
+  replies     Post[]       @relation("PostReplies")
+  attachments Attachment[]
+  likes       PostLike[]
+
+  @@index([threadId, createdAt(sort: Asc)])
+  @@map("posts")
+}
+
+model Attachment {
+  id            String   @id @default(uuid())
+  postId        String?  @map("post_id")
+  userId        String   @map("user_id")
+  filename      String
+  originalName  String   @map("original_name")
+  mimeType      String   @map("mime_type")
+  sizeBytes     BigInt   @map("size_bytes")
+  storagePath   String   @map("storage_path")
+  isImage       Boolean  @default(false) @map("is_image")
+  imageWidth    Int?     @map("image_width")
+  imageHeight   Int?     @map("image_height")
+  thumbnailPath String?  @map("thumbnail_path")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  post Post? @relation(fields: [postId], references: [id])
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("attachments")
+}
+
+model PostLike {
+  userId    String   @map("user_id")
+  postId    String   @map("post_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+  post Post @relation(fields: [postId], references: [id])
+
+  @@id([userId, postId])
+  @@map("post_likes")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  actorId   String           @map("actor_id")
+  threadId  String           @map("thread_id")
+  postId    String?          @map("post_id")
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user   User    @relation("NotificationRecipient", fields: [userId], references: [id])
+  actor  User    @relation("NotificationActor", fields: [actorId], references: [id])
+  thread Thread  @relation(fields: [threadId], references: [id])
+
+  @@map("notifications")
+}
+
+model UserBoardSubscription {
+  userId  String @map("user_id")
+  boardId String @map("board_id")
+
+  user  User  @relation(fields: [userId], references: [id])
+  board Board @relation(fields: [boardId], references: [id])
+
+  @@id([userId, boardId])
+  @@map("user_board_subscriptions")
+}

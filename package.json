@@ -1,0 +1,25 @@
+{
+  "name": "neobbs",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:migrate": "cd apps/server && npx prisma migrate dev",
+    "db:seed": "cd apps/server && npx prisma db seed",
+    "db:studio": "cd apps/server && npx prisma studio"
+  },
+  "packageManager": "pnpm@11.5.1",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3"
+  },
+  "devDependencies": {
+    "prisma": "6.19.3",
+    "tsx": "^4.22.4",
+    "turbo": "^2.9.16"
+  }
+}

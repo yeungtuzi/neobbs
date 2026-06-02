@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm dev)",
+      "Bash(pnpm install*)",
+      "Bash(pnpm run *)",
+      "Bash(pnpm db:*)",
+      "Bash(pnpm exec *)",
+      "Bash(npx prisma *)",
+      "Bash(cd ~/vscode/neobbs && pnpm *)",
+      "Bash(pkill -f *)",
+      "Bash(kill $(lsof -ti:*)",
+      "Bash(lsof -ti:*)",
+      "Bash(open -a *)",
+      "Bash(orb compose *)",
+      "Bash(docker compose *)"
+    ]
+  }
+}

@@ -6,23 +6,21 @@ export class SearchService {
   constructor(private readonly prisma: PrismaService) {}
 
   async search(query: string, boardSlug?: string, limit = 20, offset = 0) {
-    if (!query || query.trim().length < 2) {
-      throw new BadRequestException('Search query must be at least 2 characters');
+    if (!query || query.trim().length < 1) {
+      throw new BadRequestException('Search query cannot be empty');
     }
 
-    const boardFilter = boardSlug
-      ? { board: { slug: boardSlug } }
-      : {};
+    const q = query.trim();
+    const boardFilter = boardSlug ? { board: { slug: boardSlug } } : {};
 
-    // Search using PostgreSQL ILIKE for simplicity
-    // (For production, use tsvector with GIN index)
+    // Search both post content AND thread titles
     const where = {
       ...boardFilter,
       isDeleted: false,
-      plainText: {
-        contains: query.trim(),
-        mode: 'insensitive' as const,
-      },
+      OR: [
+        { plainText: { contains: q, mode: 'insensitive' as const } },
+        { thread: { title: { contains: q, mode: 'insensitive' as const } } },
+      ],
     };
 
     const [posts, total] = await Promise.all([

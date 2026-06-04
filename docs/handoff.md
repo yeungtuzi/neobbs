@@ -1,6 +1,6 @@
 # NeoBBS — Firebird Phoenix 项目 Handoff
 
-> 最后更新: 2026-06-03
+> 最后更新: 2026-06-04
 
 ## 项目概述
 
@@ -63,10 +63,30 @@
 - 回复通知：推送到帖子作者
 - 在线人数追踪
 
+### 帖子管理
+- 帖子永久编号（postNumber，全板块唯一递增）
+- 单帖精华标记（版主/管理员），精华链保护祖先帖
+- 批量清理（输入编号范围，跳过精华帖及其祖先）
+- 回收站视图（版主/管理员查看已删帖子）
+- 帖子编辑（e 键，回填原文，PATCH API）
+- 帖子删除（d 键确认，软删除）
+
+### 版面管理
+- 版面隐藏/反隐藏（. 键，Shift+H 切换全部显示）
+- 精华区过滤（x 键，仅显示精华帖）
+
+### 搜索
+- 弹出式搜索浮层（不离开当前页面）
+- 全站搜索（首页 /）或当前版面搜索（板块页 /）
+- 搜索帖子正文 + 标题（OR 条件）
+- 搜索结果键盘导航（j/k + Enter）
+- ESC 关闭搜索浮层
+
 ### 用户体验
 - 进入帖子后返回保持滚动位置（sessionStorage）
 - 编辑器打开自动清空上次内容
 - 鼠标选文字不触发编辑器关闭
+- 右下角热键提示面板（页面自适应）
 
 ## 未实现（明确排除）
 
@@ -92,7 +112,11 @@ POST   /api/boards/:slug/threads
 GET    /api/threads/:id
 POST   /api/threads/:id/replies
 POST   /api/posts/:id/like
+PATCH  /api/posts/:id
+PATCH  /api/posts/:id/digest
 DELETE /api/posts/:id
+POST   /api/boards/:slug/cleanup
+GET    /api/boards/:slug/deleted
 POST   /api/attachments/upload
 GET    /api/search?q=&board=&limit=
 GET    /api/notifications

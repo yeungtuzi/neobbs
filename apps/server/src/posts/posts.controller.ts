@@ -1,4 +1,4 @@
-import { Controller, Post, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Post, Patch, Delete, Param, Body } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
@@ -15,6 +15,15 @@ export class PostsController {
     return this.postsService.createReply(id, user.id, body);
   }
 
+  @Patch('posts/:id')
+  async update(
+    @Param('id') id: string,
+    @Body() body: { content: unknown },
+    @CurrentUser() user: any,
+  ) {
+    return this.postsService.update(id, user.id, body);
+  }
+
   @Post('posts/:id/like')
   async toggleLike(
     @Param('id') id: string,
@@ -29,5 +38,13 @@ export class PostsController {
     @CurrentUser() user: any,
   ) {
     return this.postsService.delete(id, user.id);
+  }
+
+  @Patch('posts/:id/digest')
+  async toggleDigest(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.postsService.toggleDigestPost(id, user.id, user.role);
   }
 }

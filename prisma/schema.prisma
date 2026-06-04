@@ -107,6 +107,8 @@ model Post {
   editCount   Int      @default(0) @map("edit_count")
   isDeleted   Boolean  @default(false) @map("is_deleted")
   isFirstPost Boolean  @default(false) @map("is_first_post")
+  isDigest    Boolean  @default(false) @map("is_digest")
+  postNumber   Int      @default(1)    @map("post_number")
   parentPostId String?  @map("parent_post_id")
 
   thread      Thread       @relation(fields: [threadId], references: [id])

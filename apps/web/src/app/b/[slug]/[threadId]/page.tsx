@@ -3,12 +3,28 @@
 import { useState, useEffect, useCallback, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, ThumbsUp, MessageSquare, Clock, User, CornerDownRight } from 'lucide-react';
+import { ArrowLeft, ThumbsUp, MessageSquare, Clock, User, CornerDownRight, Star } from 'lucide-react';
 import { KeyboardBus } from '@/components/keyboard/keyboard-bus';
 import { PostEditor } from '@/components/post/post-editor';
 import { api } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
+import { playLikeSound } from '@/lib/sound';
 import { motion, AnimatePresence } from 'framer-motion';
+
+const EMOJI_MAP: Record<string, string> = {
+  ':rocket:':'🚀',':fire:':'🔥',':+1:':'👍',':heart:':'❤️',':tada:':'🎉',
+  ':smile:':'😊',':laugh:':'😂',':clap:':'👏',':100:':'💯',':star:':'⭐',
+};
+
+function replaceEmojis(html: string): string {
+  let result = html;
+  for (const [code, emoji] of Object.entries(EMOJI_MAP)) {
+    result = result.split(code).join(
+      `<span class="inline-block animate-bounce">${emoji}</span>`
+    );
+  }
+  return result;
+}
 
 interface PostData {
   id: string;
@@ -19,6 +35,8 @@ interface PostData {
   updatedAt: string;
   editCount: number;
   isFirstPost: boolean;
+  isDigest: boolean;
+  postNumber: number;
   author: { id: string; username: string; avatar: string | null; signature: string | null };
   attachments: { id: string; originalName: string; mimeType: string; isImage: boolean; url: string }[];
   likeCount: number;
@@ -118,8 +136,9 @@ export default function ThreadDetailPage({
   const [showEditor, setShowEditor] = useState(false);
   const [focusedPostIndex, setFocusedPostIndex] = useState(0);
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<{ id: string; content: any } | null>(null);
   const postRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const { isLoggedIn, requireAuth } = useAuth();
+  const { user, isLoggedIn, requireAuth } = useAuth();
 
   const fetchThread = useCallback(() => {
     api.getThread(threadId)
@@ -141,6 +160,7 @@ export default function ThreadDetailPage({
     setFlatPosts((prev) =>
       prev.map((p) => (p.id === postId ? { ...p, isLiked: !p.isLiked, likeCount: p.likeCount + (p.isLiked ? -1 : 1) } : p)),
     );
+    playLikeSound();
     try { await api.toggleLike(postId); } catch {
       setFlatPosts((prev) =>
         prev.map((p) => (p.id === postId ? { ...p, isLiked: !p.isLiked, likeCount: p.likeCount + (p.isLiked ? -1 : 1) } : p)),
@@ -181,6 +201,24 @@ export default function ThreadDetailPage({
           setShowEditor(true);
           break;
         }
+        case 'edit_post': {
+          if (!requireAuth()) break;
+          const ep = flatPosts[focusedPostIndex];
+          if (ep) { setEditTarget({ id: ep.id, content: ep.content }); setShowEditor(true); }
+          break;
+        }
+        case 'delete': {
+          if (!requireAuth()) break;
+          const dp = flatPosts[focusedPostIndex];
+          if (dp && confirm('确认删除此帖？')) {
+            api.deletePost(dp.id).then(() => fetchThread());
+          }
+          break;
+        }
+        case 'toggle_digest':
+          if (!requireAuth()) break;
+          api.toggleDigest(threadId).then(() => fetchThread());
+          break;
         case 'like':
           if (!requireAuth()) break;
           if (flatPosts[focusedPostIndex]) handleLike(flatPosts[focusedPostIndex]!.id);
@@ -204,8 +242,8 @@ export default function ThreadDetailPage({
   };
 
   return (
-    <div className="flex flex-col h-screen max-w-4xl mx-auto w-full">
-      <KeyboardBus mode="detail" onAction={handleKeyboardAction} />
+    <div className="flex flex-col h-screen max-w-4xl mx-auto w-full relative">
+      <KeyboardBus mode="detail" onAction={handleKeyboardAction} hints={['j/↓ 下', 'k/↑ 上', '← 返回', 'r 回复', 'e 编辑', 'a 赞', 'd 删']} />
 
       <header className="flex items-center gap-3 px-4 py-3 border-b border-[var(--text-secondary)]/10 bg-[var(--bg-card)]">
         <Link href={`/b/${slug}`} className="text-[var(--text-secondary)] hover:text-[var(--accent-cyan)]">
@@ -252,7 +290,7 @@ export default function ThreadDetailPage({
               {post.parentPostId && (
                 <div className="flex items-center gap-1 text-xs text-[var(--text-secondary)] mb-2">
                   <CornerDownRight className="w-3 h-3" style={{ color: depthColor(depth) }} />
-                  <span>回复 #{flatPosts.findIndex(p => p.id === post.parentPostId) + 1}</span>
+                  <span>回复 #{flatPosts.find(p => p.id === post.parentPostId)?.postNumber || '?'}</span>
                 </div>
               )}
 
@@ -262,12 +300,23 @@ export default function ThreadDetailPage({
                     {post.author.username[0]?.toUpperCase()}
                   </div>
                   <span className="text-sm font-medium text-[var(--text-primary)]">{post.author.username}</span>
-                  <span className="text-xs text-[var(--text-secondary)] font-mono">#{index + 1}</span>
+                  {post.isDigest && <Star className="w-3.5 h-3.5 text-[var(--accent-yellow)]" />}
+                  <span className="text-xs text-[var(--text-secondary)] font-mono">#{post.postNumber}</span>
+                  {(user?.role === 'moderator' || user?.role === 'admin') && (
+                    <button onClick={() => { api.togglePostDigest(post.id).then(() => fetchThread()); }}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)]
+                                       hover:text-[var(--accent-yellow)] transition-colors"
+                            title={post.isDigest ? '取消精华' : '标记精华'}>
+                      {post.isDigest ? '取消精华' : '精华'}
+                    </button>
+                  )}
                 </div>
               </div>
 
               <div className="tiptap-content text-sm text-[var(--text-primary)] leading-relaxed"
-                   dangerouslySetInnerHTML={{ __html: (post.content as any)?.html || post.plainText.replace(/\n/g, '<br/>') }} />
+                   dangerouslySetInnerHTML={{
+                    __html: replaceEmojis((post.content as any)?.html || post.plainText.replace(/\n/g, '<br/>'))
+                  }} />
 
               {post.attachments.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -317,9 +366,10 @@ export default function ThreadDetailPage({
         boardSlug={slug}
         threadId={threadId}
         parentPostId={replyTarget ?? undefined}
+        editPost={editTarget}
         open={showEditor}
-        onClose={() => { setShowEditor(false); setReplyTarget(null); }}
-        onSuccess={() => fetchThread()}
+        onClose={() => { setShowEditor(false); setReplyTarget(null); setEditTarget(null); }}
+        onSuccess={() => { fetchThread(); setEditTarget(null); }}
       />
     </div>
   );

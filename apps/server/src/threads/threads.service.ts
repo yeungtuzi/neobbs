@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { NotificationsGateway } from '../notifications/ws/notifications.gateway';
 
@@ -9,7 +9,7 @@ export class ThreadsService {
     private readonly ws: NotificationsGateway,
   ) {}
 
-  async findByBoard(boardSlug: string, cursor?: string, limit = 20) {
+  async findByBoard(boardSlug: string, cursor?: string, limit = 20, digestOnly = false) {
     const board = await this.prisma.board.findUnique({
       where: { slug: boardSlug },
     });
@@ -18,8 +18,11 @@ export class ThreadsService {
       throw new NotFoundException('Board not found');
     }
 
+    const where: any = { boardId: board.id };
+    if (digestOnly) where.isDigest = true;
+
     const threads = await this.prisma.thread.findMany({
-      where: { boardId: board.id },
+      where,
       orderBy: [
         { isPinned: 'desc' },
         { lastReplyAt: 'desc' },
@@ -102,6 +105,8 @@ export class ThreadsService {
         updatedAt: true,
         editCount: true,
         isFirstPost: true,
+        isDigest: true,
+        postNumber: true,
         parentPostId: true,
         author: {
           select: {
@@ -175,6 +180,14 @@ export class ThreadsService {
     // Extract plain text from TipTap JSON
     const plainText = this.extractPlainText(data.content);
 
+    // Get next post number for this board
+    const lastPost = await this.prisma.post.findFirst({
+      where: { boardId: board.id },
+      orderBy: { postNumber: 'desc' },
+      select: { postNumber: true },
+    });
+    const postNumber = (lastPost?.postNumber || 0) + 1;
+
     const thread = await this.prisma.thread.create({
       data: {
         boardId: board.id,
@@ -187,6 +200,7 @@ export class ThreadsService {
             content: data.content as object,
             plainText,
             isFirstPost: true,
+            postNumber,
           },
         },
       },
@@ -231,6 +245,99 @@ export class ThreadsService {
     });
 
     return thread;
+  }
+
+  async batchDelete(
+    boardSlug: string,
+    userId: string,
+    role: string,
+    fromNumber: number,
+    toNumber: number,
+  ) {
+    if (role !== 'moderator' && role !== 'admin') {
+      throw new ForbiddenException('Only moderators can batch delete');
+    }
+    const board = await this.prisma.board.findUnique({ where: { slug: boardSlug } });
+    if (!board) throw new NotFoundException('Board not found');
+
+    // Find posts with digest marks in range → protect their ancestor chains
+    const digestPosts = await this.prisma.post.findMany({
+      where: {
+        boardId: board.id,
+        postNumber: { gte: fromNumber, lte: toNumber },
+        isDigest: true,
+        isDeleted: false,
+      },
+      select: { id: true, parentPostId: true },
+    });
+
+    // Walk up to collect all ancestor IDs that are protected
+    const protectedIds = new Set<string>();
+    for (const dp of digestPosts) {
+      let current: string | null = dp.id;
+      while (current) {
+        protectedIds.add(current);
+        const ancestor: { parentPostId: string | null } | null = await this.prisma.post.findUnique({
+          where: { id: current },
+          select: { parentPostId: true },
+        });
+        current = ancestor?.parentPostId ?? null;
+      }
+    }
+
+    // Soft-delete posts in range, skipping protected ones and special threads
+    const result = await this.prisma.post.updateMany({
+      where: {
+        boardId: board.id,
+        postNumber: { gte: fromNumber, lte: toNumber },
+        isDeleted: false,
+        id: { notIn: [...protectedIds] },
+        thread: { isDigest: false, isPinned: false },
+      },
+      data: { isDeleted: true },
+    });
+    return { deleted: result.count, from: fromNumber, to: toNumber, protectedPosts: protectedIds.size };
+  }
+
+  async findDeleted(boardSlug: string, cursor?: string, limit = 50) {
+    const board = await this.prisma.board.findUnique({ where: { slug: boardSlug } });
+    if (!board) throw new NotFoundException('Board not found');
+
+    const posts = await this.prisma.post.findMany({
+      where: { boardId: board.id, isDeleted: true },
+      orderBy: { postNumber: 'desc' },
+      take: limit + 1,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      select: {
+        id: true, postNumber: true, plainText: true, createdAt: true,
+        author: { select: { id: true, username: true } },
+        thread: { select: { id: true, title: true } },
+      },
+    });
+
+    const hasMore = posts.length > limit;
+    return {
+      items: posts.slice(0, limit).map((p) => ({
+        ...p,
+        plainText: p.plainText.slice(0, 100),
+      })),
+      nextCursor: hasMore ? posts[limit - 1]!.id : null,
+      hasMore,
+    };
+  }
+
+  async toggleDigest(threadId: string, userId: string, role: string) {
+    if (role !== 'moderator' && role !== 'admin') {
+      throw new ForbiddenException('Only moderators can manage digests');
+    }
+    const thread = await this.prisma.thread.findUnique({ where: { id: threadId } });
+    if (!thread) throw new NotFoundException('Thread not found');
+
+    const updated = await this.prisma.thread.update({
+      where: { id: threadId },
+      data: { isDigest: !thread.isDigest },
+    });
+    return { isDigest: updated.isDigest };
   }
 
   private extractPlainText(content: unknown): string {

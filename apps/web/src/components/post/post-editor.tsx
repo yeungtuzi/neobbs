@@ -14,9 +14,10 @@ interface Props {
   onClose: () => void;
   onSuccess?: () => void;
   parentPostId?: string;
+  editPost?: { id: string; content: any; title?: string } | null; // editing existing post
 }
 
-export function PostEditor({ boardSlug, threadId, open, onClose, onSuccess, parentPostId }: Props) {
+export function PostEditor({ boardSlug, threadId, open, onClose, onSuccess, parentPostId, editPost }: Props) {
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [contentJson, setContentJson] = useState<object>({});
@@ -32,17 +33,26 @@ export function PostEditor({ boardSlug, threadId, open, onClose, onSuccess, pare
   const [attachmentIds, setAttachmentIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Reset on open
+  const isEditing = !!editPost;
+
+  // Reset or pre-fill on open
   useEffect(() => {
     if (open) {
-      setTitle('');
-      setContentJson({});
-      setContentHtml('');
-      setContentText('');
+      if (editPost) {
+        setTitle(editPost.title || '');
+        setContentJson((editPost.content as any)?.json || editPost.content);
+        setContentHtml((editPost.content as any)?.html || '');
+        setContentText((editPost.content as any)?.plainText || '');
+      } else {
+        setTitle('');
+        setContentJson({});
+        setContentHtml('');
+        setContentText('');
+      }
       setAttachments([]);
       setAttachmentIds([]);
     }
-  }, [open]);
+  }, [open, editPost]);
 
   const handleSubmit = useCallback(async () => {
     if (!contentText.trim()) return;
@@ -50,7 +60,9 @@ export function PostEditor({ boardSlug, threadId, open, onClose, onSuccess, pare
 
     setSubmitting(true);
     try {
-      if (threadId) {
+      if (editPost) {
+        await api.updatePost(editPost.id, { json: contentJson, html: contentHtml });
+      } else if (threadId) {
         await api.createReply(threadId, { json: contentJson, html: contentHtml }, attachmentIds, parentPostId);
       } else {
         const thread = await api.createThread(boardSlug, title, { json: contentJson, html: contentHtml }, attachmentIds);
@@ -106,7 +118,7 @@ export function PostEditor({ boardSlug, threadId, open, onClose, onSuccess, pare
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--text-secondary)]/10">
           <h2 className="text-sm font-semibold text-[var(--accent-cyan)]">
-            {isReply ? '回复帖子' : `发新帖 · ${boardSlug}`}
+            {isEditing ? '编辑帖子' : isReply ? '回复帖子' : `发新帖 · ${boardSlug}`}
           </h2>
           <div className="flex-1" />
           <button
@@ -231,7 +243,7 @@ export function PostEditor({ boardSlug, threadId, open, onClose, onSuccess, pare
                        hover:opacity-80 disabled:opacity-40 transition-opacity"
           >
             <Send className="w-4 h-4" />
-            {submitting ? '发送中...' : isReply ? '回复' : '发帖'}
+            {submitting ? '发送中...' : isEditing ? '保存' : isReply ? '回复' : '发帖'}
           </button>
         </div>
       </div>

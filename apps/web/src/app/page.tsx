@@ -3,9 +3,22 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MessageSquare, Terminal, User, LogOut } from 'lucide-react';
+import { MessageSquare, Terminal, User, LogOut, Eye, EyeOff } from 'lucide-react';
 import { KeyboardBus } from '@/components/keyboard/keyboard-bus';
+import { SearchOverlay } from '@/components/search/search-overlay';
 import { api } from '@/lib/api-client';
+
+function loadHiddenBoards(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem('hidden_boards');
+    return raw ? new Set(JSON.parse(raw)) : new Set();
+  } catch { return new Set(); }
+}
+
+function saveHiddenBoards(set: Set<string>) {
+  localStorage.setItem('hidden_boards', JSON.stringify([...set]));
+}
 
 const BOARDS = [
   { name: '站务管理', slug: 'admin', desc: '站务公告、意见反馈、版主申请', count: 128 },
@@ -28,6 +41,24 @@ export default function HomePage() {
   const router = useRouter();
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [hiddenBoards, setHiddenBoards] = useState<Set<string>>(loadHiddenBoards);
+  const [showAll, setShowAll] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+
+  useEffect(() => {
+    const handler = () => setShowSearch(true);
+    window.addEventListener('open-search', handler);
+    return () => window.removeEventListener('open-search', handler);
+  }, []);
+
+  // Restore saved board focus position
+  useEffect(() => {
+    const saved = sessionStorage.getItem('pos:home');
+    if (saved) {
+      setFocusedIndex(parseInt(saved, 10) || 0);
+      sessionStorage.removeItem('pos:home');
+    }
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -38,12 +69,6 @@ export default function HomePage() {
         localStorage.removeItem('token');
         setUser(null);
       });
-    // Restore saved board focus position
-    const saved = sessionStorage.getItem('pos:home');
-    if (saved) {
-      setFocusedIndex(parseInt(saved, 10));
-      sessionStorage.removeItem('pos:home');
-    }
   }, []);
 
   const handleLogout = () => {
@@ -71,9 +96,18 @@ export default function HomePage() {
           sessionStorage.setItem('pos:home', String(focusedIndex));
           router.push(`/b/${BOARDS[focusedIndex]!.slug}`);
           break;
-        case 'focus_search':
-          router.push('/search');
+        case 'show_all':
+          setShowAll((v) => !v);
           break;
+        case 'toggle_hide': {
+          const slug = BOARDS[focusedIndex]?.slug;
+          if (!slug) break;
+          const next = new Set(hiddenBoards);
+          if (next.has(slug)) next.delete(slug); else next.add(slug);
+          setHiddenBoards(next);
+          saveHiddenBoards(next);
+          break;
+        }
         case 'go_back':
           router.push('/');
           break;
@@ -83,8 +117,8 @@ export default function HomePage() {
   );
 
   return (
-    <div className="max-w-4xl mx-auto w-full p-6">
-      <KeyboardBus mode="list" onAction={handleAction} />
+    <div className="max-w-4xl mx-auto w-full p-6 relative">
+      <KeyboardBus mode="list" onAction={handleAction} hints={['j/↓ 下', 'k/↑ 上', '→ 进入', '. 隐藏', 'Shift+H 全部', '/ 搜索']} />
 
       {/* Header */}
       <header className="mb-8 pt-8">
@@ -96,6 +130,9 @@ export default function HomePage() {
           <div className="flex-1" />
           {user ? (
             <div className="flex items-center gap-3">
+              <Link href="/settings" className="text-xs text-[var(--text-secondary)] hover:text-[var(--accent-cyan)] transition-colors">
+                设置
+              </Link>
               <span className="flex items-center gap-1.5 text-sm text-[var(--text-primary)]">
                 <User className="w-4 h-4 text-[var(--accent-green)]" />
                 {user.username}
@@ -134,13 +171,34 @@ export default function HomePage() {
       <nav>
         <h2 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wider mb-3">
           讨论区
+          {hiddenBoards.size > 0 && !showAll && (
+            <span className="ml-2 text-[10px] text-[var(--text-secondary)] font-normal">
+              ({hiddenBoards.size} 个已隐藏)
+            </span>
+          )}
+          {showAll && (
+            <span className="ml-2 text-[10px] text-[var(--accent-yellow)] font-normal">
+              显示全部 · Shift+H 切换
+            </span>
+          )}
         </h2>
         <div className="space-y-1">
-          {BOARDS.map((board, i) => (
-            <Link
+          {BOARDS.map((board, i) => {
+            const isHidden = hiddenBoards.has(board.slug);
+            if (isHidden && !showAll) return null;
+
+            return (
+            <div
               key={board.slug}
-              href={`/b/${board.slug}`}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg
+              role="link"
+              tabIndex={0}
+              onClick={() => {
+                setFocusedIndex(i);
+                sessionStorage.setItem('pos:home', String(i));
+                router.push(`/b/${board.slug}`);
+              }}
+              className={`flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer
+                         ${isHidden ? 'opacity-50' : ''}
                          transition-colors duration-75 group
                          ${i === focusedIndex
                            ? 'bg-[var(--bg-hover)] border-l-2 border-l-[var(--accent-yellow)]'
@@ -166,17 +224,26 @@ export default function HomePage() {
               <span className="text-xs text-[var(--text-secondary)] font-mono">
                 {board.count.toLocaleString()}
               </span>
-            </Link>
-          ))}
+              {showAll && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)]">
+                  {isHidden ? <EyeOff className="w-3 h-3 text-[var(--text-secondary)]" /> : <Eye className="w-3 h-3 text-[var(--accent-green)]" />}
+                </span>
+              )}
+            </div>
+            );
+          })}
         </div>
       </nav>
 
       {/* Footer */}
       <footer className="mt-12 text-center text-xs text-[var(--text-secondary)]">
-        NeoBBS · Firebird Phoenix v0.1.0 · 按{' '}
-        <kbd className="px-1 py-0.5 rounded bg-[var(--bg-hover)] font-mono">?</kbd>
-        {' '}查看快捷键
+        NeoBBS · Firebird Phoenix v0.1.0 · {' '}
+        <kbd className="px-1 py-0.5 rounded bg-[var(--bg-hover)] font-mono">.</kbd> 隐藏版面{' '}
+        <kbd className="px-1 py-0.5 rounded bg-[var(--bg-hover)] font-mono">Shift+H</kbd> 全部显示{' '}
+        <kbd className="px-1 py-0.5 rounded bg-[var(--bg-hover)] font-mono">?</kbd> 快捷键
       </footer>
+
+      <SearchOverlay open={showSearch} onClose={() => setShowSearch(false)} />
     </div>
   );
 }

@@ -14,7 +14,7 @@ class ApiClient {
     return null;
   }
 
-  private async request<T>(
+  async request<T>(
     endpoint: string,
     options: RequestInit = {},
   ): Promise<T> {
@@ -73,9 +73,10 @@ class ApiClient {
   }
 
   // Threads
-  getThreads(boardSlug: string, cursor?: string) {
+  getThreads(boardSlug: string, cursor?: string, digestOnly = false) {
     const params = new URLSearchParams({ limit: '20' });
     if (cursor) params.set('cursor', cursor);
+    if (digestOnly) params.set('digest', 'true');
     return this.request<unknown>(`/boards/${boardSlug}/threads?${params}`);
   }
 
@@ -95,6 +96,47 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ content, attachmentIds, parentPostId }),
     });
+  }
+
+  // Edit & delete
+  updatePost(postId: string, content: unknown) {
+    return this.request<{ ok: boolean }>(`/posts/${postId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  deletePost(postId: string) {
+    return this.request<{ deleted: boolean }>(`/posts/${postId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  toggleDigest(threadId: string) {
+    return this.request<{ isDigest: boolean }>(`/threads/${threadId}/digest`, {
+      method: 'PATCH',
+    });
+  }
+
+  togglePostDigest(postId: string) {
+    return this.request<{ isDigest: boolean }>(`/posts/${postId}/digest`, {
+      method: 'PATCH',
+    });
+  }
+
+  batchDelete(boardSlug: string, from: number, to: number) {
+    return this.request<{ deleted: number }>(`/boards/${boardSlug}/cleanup`, {
+      method: 'POST',
+      body: JSON.stringify({ from, to }),
+    });
+  }
+
+  getDeletedPosts(boardSlug: string, cursor?: string) {
+    const params = new URLSearchParams({ limit: '50' });
+    if (cursor) params.set('cursor', cursor);
+    return this.request<{ items: any[]; nextCursor: string | null; hasMore: boolean }>(
+      `/boards/${boardSlug}/deleted?${params}`,
+    );
   }
 
   // Likes

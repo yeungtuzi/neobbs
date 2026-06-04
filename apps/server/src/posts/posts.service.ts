@@ -37,6 +37,14 @@ export class PostsService {
       }
     }
 
+    // Get next post number for this board
+    const lastPost = await this.prisma.post.findFirst({
+      where: { boardId: thread.boardId },
+      orderBy: { postNumber: 'desc' },
+      select: { postNumber: true },
+    });
+    const postNumber = (lastPost?.postNumber || 0) + 1;
+
     const post = await this.prisma.post.create({
       data: {
         threadId: thread.id,
@@ -45,6 +53,7 @@ export class PostsService {
         content: data.content as object,
         plainText,
         isFirstPost: false,
+        postNumber,
         parentPostId: data.parentPostId,
       },
       select: {
@@ -98,6 +107,65 @@ export class PostsService {
     };
   }
 
+  async update(postId: string, userId: string, data: { content: unknown }) {
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, isDeleted: true },
+    });
+    if (!post || post.isDeleted) throw new NotFoundException('Post not found');
+    if (post.authorId !== userId) throw new ForbiddenException('Not your post');
+
+    const plainText = this.extractPlainText(data.content);
+    const updated = await this.prisma.post.update({
+      where: { id: postId },
+      data: {
+        content: data.content as object,
+        plainText,
+        editCount: { increment: 1 },
+      },
+    });
+    return { ok: true, editCount: updated.editCount };
+  }
+
+  async delete(postId: string, userId: string) {
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, authorId: true, threadId: true, boardId: true },
+    });
+    if (!post) throw new NotFoundException('Post not found');
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    const isAuthor = post.authorId === userId;
+    const isModOrAdmin = user?.role === 'moderator' || user?.role === 'admin';
+    if (!isAuthor && !isModOrAdmin) throw new ForbiddenException('No permission');
+
+    await this.prisma.post.update({
+      where: { id: postId },
+      data: { isDeleted: true },
+    });
+    return { deleted: true };
+  }
+
+  async toggleDigestPost(postId: string, userId: string, role: string) {
+    if (role !== 'moderator' && role !== 'admin') {
+      throw new ForbiddenException('Only moderators can mark digests');
+    }
+    const post = await this.prisma.post.findUnique({
+      where: { id: postId },
+      select: { id: true, isDigest: true },
+    });
+    if (!post) throw new NotFoundException('Post not found');
+
+    const updated = await this.prisma.post.update({
+      where: { id: postId },
+      data: { isDigest: !post.isDigest },
+    });
+    return { isDigest: updated.isDigest };
+  }
+
   async toggleLike(postId: string, userId: string) {
     const post = await this.prisma.post.findUnique({
       where: { id: postId },
@@ -121,35 +189,6 @@ export class PostsService {
       data: { userId, postId },
     });
     return { liked: true };
-  }
-
-  async delete(postId: string, userId: string) {
-    const post = await this.prisma.post.findUnique({
-      where: { id: postId },
-      select: { id: true, authorId: true, threadId: true, boardId: true },
-    });
-
-    if (!post) throw new NotFoundException('Post not found');
-
-    // Check permission: author, moderator, or admin
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-
-    const isAuthor = post.authorId === userId;
-    const isModOrAdmin = user?.role === 'moderator' || user?.role === 'admin';
-
-    if (!isAuthor && !isModOrAdmin) {
-      throw new ForbiddenException('No permission to delete');
-    }
-
-    await this.prisma.post.update({
-      where: { id: postId },
-      data: { isDeleted: true },
-    });
-
-    return { deleted: true };
   }
 
   private extractPlainText(content: unknown): string {

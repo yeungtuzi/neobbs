@@ -1,20 +1,19 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { KeyboardHints } from './keyboard-hints';
 import type { NavMode } from '@neobbs/shared/constants';
 
 interface KeyboardBusProps {
   mode: NavMode;
   onAction: (action: string) => void;
+  hints?: string[];
 }
 
 const BROWSER_KEYS = new Set([
   't','T','w','W','l','L','d','D','h','H','j','J','q','Q','a','A','c','C','b','B','f','F','g','G',
 ]);
 
-export function KeyboardBus({ mode, onAction }: KeyboardBusProps) {
-  const [showHints, setShowHints] = useState(false);
+export function KeyboardBus({ mode, onAction, hints }: KeyboardBusProps) {
   const [lastKey, setLastKey] = useState('');
   const onActionRef = useRef(onAction);
   onActionRef.current = onAction;
@@ -59,8 +58,10 @@ export function KeyboardBus({ mode, onAction }: KeyboardBusProps) {
       }
 
       switch (key) {
-        case '/': act('focus_search'); break;
-        case '?': case 'h': act('show_help'); break;
+        case '/': window.dispatchEvent(new CustomEvent('open-search')); break;
+        case 'h': break; // no-op, kept to avoid triggering browser
+        case 'H': act('show_all'); break;
+        case '.': act('toggle_hide'); break;
         case 'ArrowDown': case 'j': act(isDetail ? 'scroll_down' : 'next_item'); break;
         case 'ArrowUp': case 'k': act(isDetail ? 'scroll_up' : 'prev_item'); break;
         case 'ArrowRight': case 'Enter': act(isList ? 'enter_thread' : 'expand_reply'); break;
@@ -99,12 +100,38 @@ export function KeyboardBus({ mode, onAction }: KeyboardBusProps) {
     <>
       <div
         data-testid="keyboard-bus"
-        className="fixed bottom-2 right-2 z-50 px-2 py-0.5 rounded text-[10px] font-mono
-                   bg-[var(--accent-green)]/20 text-[var(--accent-green)]"
+        className="absolute top-0 right-0 z-40 rounded-lg
+                   bg-[var(--bg-card)]/95 backdrop-blur border border-[var(--text-secondary)]/10
+                   shadow-lg px-3 py-2 text-[10px] font-mono
+                   text-[var(--text-secondary)] max-w-[360px]"
       >
-        kb:{mode} {lastKey}
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <span className="px-1 py-0.5 rounded bg-[var(--accent-green)]/20 text-[var(--accent-green)] text-[9px] font-bold">{mode}</span>
+          <span className="text-[var(--text-secondary)]/50">{lastKey || '·'}</span>
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+          {(hints || DEFAULT_HINTS[mode] || []).map((h: string) => {
+            const isSearch = h.startsWith('/');
+            return (
+              <span key={h} className={`inline-flex items-baseline gap-0.5 ${isSearch ? 'font-bold' : ''}`}>
+                <kbd className={isSearch ? 'text-[var(--accent-yellow)]' : 'text-[var(--accent-cyan)]'}>
+                  {h.split(' ')[0]}
+                </kbd>
+                <span className={isSearch ? 'text-[var(--accent-yellow)]/80' : 'text-[var(--text-secondary)]/50'}>
+                  {h.split(' ').slice(1).join(' ')}
+                </span>
+              </span>
+            );
+          })}
+        </div>
       </div>
-      <KeyboardHints mode={mode} open={showHints} onClose={() => setShowHints(false)} />
     </>
   );
 }
+
+const DEFAULT_HINTS: Record<string, string[]> = {
+  list: ['j/↓ 下', 'k/↑ 上', '→ 进入', '← 返回', '. 隐藏', 'Shift+H 全部', '/ 搜索', '? 帮助'],
+  detail: ['j/↓ 下', 'k/↑ 上', '← 返回', 'r 回复', 'e 编辑', 'a 点赞', 'd 删除', 'x 精华'],
+  editor: ['Ctrl+Enter 提交'],
+  search: ['Esc 关闭', 'Enter 搜索'],
+};

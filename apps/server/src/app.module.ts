@@ -16,6 +16,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { SearchModule } from './search/search.module';
 import { AiModule } from './ai/ai.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { UsersModule } from './users/users.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     SearchModule,
     AiModule,
     NotificationsModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [

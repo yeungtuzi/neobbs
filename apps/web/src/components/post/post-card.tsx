@@ -37,6 +37,7 @@ export const PostCard = memo(function PostCard({
   return (
     <Link
       href={`/b/${boardSlug}/${item.id}`}
+      onClick={() => sessionStorage.setItem(`pos:${boardSlug}`, String(index))}
       className={`flex items-center gap-3 px-4 py-3 border-b border-[var(--text-secondary)]/5
                   transition-colors duration-75
                   ${isFocused

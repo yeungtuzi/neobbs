@@ -25,6 +25,9 @@ export function KeyboardBus({ mode, onAction, hints }: KeyboardBusProps) {
     const ggBuffer: string[] = [];
 
     const handler = (e: KeyboardEvent) => {
+      // If search overlay is open, let it handle all keys (including ESC to close)
+      if (document.querySelector('[data-search-overlay]')) return;
+
       const m = modeRef.current;
       const act = onActionRef.current;
       // Pass through browser combos

@@ -223,9 +223,19 @@ export default function ThreadDetailPage({
           if (!requireAuth()) break;
           if (flatPosts[focusedPostIndex]) handleLike(flatPosts[focusedPostIndex]!.id);
           break;
-        case 'back_to_list':
-          router.push(`/b/${slug}`);
+        case 'back_to_list': {
+          // Return to the page user came from, preserving search state
+          const cameFrom = sessionStorage.getItem('came_from_search');
+          if (cameFrom === 'home') {
+            if (sessionStorage.getItem('search:global')) sessionStorage.setItem('restore_search:home', '1');
+            sessionStorage.removeItem('came_from_search');
+            router.push('/');
+          } else {
+            if (sessionStorage.getItem(`search:${slug}`)) sessionStorage.setItem(`restore_search:${slug}`, '1');
+            router.push(`/b/${slug}`);
+          }
           break;
+        }
       }
     },
     [flatPosts, focusedPostIndex, scrollToPost, handleLike, router, slug],

@@ -343,13 +343,16 @@ export class ThreadsService {
   private extractPlainText(content: unknown): string {
     if (typeof content === 'string') return content;
     if (typeof content === 'object' && content !== null) {
-      // Recurse into TipTap JSON structure
       const obj = content as Record<string, unknown>;
+      // Handle wrapper { json: TipTapDoc, html: string }
+      if (obj.json) return this.extractPlainText(obj.json);
+      // Strip HTML tags for html field
+      if (typeof obj.html === 'string') return obj.html.replace(/<[^>]*>/g, '');
+      // Recurse into TipTap JSON structure
       if (obj.text) return String(obj.text);
       if (Array.isArray(obj.content)) {
         return obj.content.map((c: unknown) => this.extractPlainText(c)).join(' ');
       }
-      return '';
     }
     return '';
   }

@@ -48,6 +48,11 @@ export default function HomePage() {
   useEffect(() => {
     const handler = () => setShowSearch(true);
     window.addEventListener('open-search', handler);
+    const restoreKey = 'restore_search:home';
+    if (sessionStorage.getItem(restoreKey)) {
+      sessionStorage.removeItem(restoreKey);
+      setShowSearch(true);
+    }
     return () => window.removeEventListener('open-search', handler);
   }, []);
 

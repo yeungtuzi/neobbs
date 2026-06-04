@@ -22,28 +22,98 @@ export function SearchOverlay({ open, onClose, boardSlug, boardName }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRefs = useRef<Map<number, HTMLAnchorElement>>(new Map());
 
+  const storageKey = `search:${boardSlug || 'global'}`;
+
+  // Debounced incremental search as user types
+  useEffect(() => {
+    if (!query.trim() || query.trim().length < 1) { setResults([]); setTotal(0); setSearched(false); return; }
+    const timer = setTimeout(() => { doSearch(); }, 200);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, boardSlug]);
+
   // Focus input on open
   useEffect(() => {
     if (open) {
+      // Restore saved search state when returning from navigation
+      const saved = sessionStorage.getItem(storageKey);
+      if (saved) {
+        try {
+          const state = JSON.parse(saved);
+          setQuery(state.query);
+          setResults(state.results);
+          setTotal(state.total);
+          setSearched(state.searched);
+          setFocusedIdx(-1);
+          sessionStorage.removeItem(storageKey);
+          return; // keep restored state, don't reset
+        } catch {}
+      }
+      // Fresh open: reset
       setQuery('');
       setResults([]);
       setSearched(false);
+      setFocusedIdx(-1);
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [open]);
+  }, [open, storageKey]);
 
-  // ESC to close
+  // Keyboard navigation for results — window-level to catch all events
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); onClose(); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopImmediatePropagation(); onClose(); return; }
+
+      // In input: pass through except Enter for immediate search
+      if (document.activeElement === inputRef.current) {
+        if (e.key === 'ArrowDown' && results.length > 0) {
+          e.preventDefault(); setFocusedIdx(0);
+          setTimeout(() => resultRefs.current.get(0)?.focus(), 0);
+        }
+        return;
+      }
+
+      // Backspace always edits the search input
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        if (document.activeElement !== inputRef.current) {
+          inputRef.current?.focus();
+        }
+        // Remove last character from query
+        setQuery((prev) => prev.slice(0, -1));
+        return;
+      }
+
+      // Results navigation (works when input is not focused)
+      if (results.length === 0) return;
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault(); e.stopPropagation();
+        setFocusedIdx((i) => Math.min(i + 1, results.length - 1));
+      }
+      if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault(); e.stopPropagation();
+        setFocusedIdx((i) => Math.max(0, i - 1));
+      }
+      if (e.key === 'Enter' && focusedIdx >= 0 && results[focusedIdx]) {
+        e.preventDefault(); e.stopPropagation();
+        const item = results[focusedIdx];
+        sessionStorage.setItem(storageKey, JSON.stringify({ query, results, total, searched: true }));
+        sessionStorage.setItem('came_from_search', boardSlug ? 'board' : 'home');
+        onClose();
+        // Navigate
+        window.location.href = `/b/${item.boardSlug}/${item.threadId}`;
+      }
+      // Type to refocus input
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+        inputRef.current?.focus();
+      }
     };
     window.addEventListener('keydown', handler, { capture: true });
     return () => window.removeEventListener('keydown', handler, { capture: true });
-  }, [open, onClose]);
+  }, [open, onClose, results, focusedIdx, query, total, searched, storageKey, boardSlug]);
 
   const doSearch = useCallback(async () => {
-    if (query.trim().length < 2) return;
+    if (query.trim().length < 1) return;
     setLoading(true);
     setSearched(true);
     try {
@@ -56,41 +126,13 @@ export function SearchOverlay({ open, onClose, boardSlug, boardName }: Props) {
   }, [query, boardSlug]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
-
-    // If input is focused, only handle Enter for search
-    if (document.activeElement === inputRef.current) {
-      if (e.key === 'Enter') { e.preventDefault(); doSearch(); setFocusedIdx(-1); }
-      if (e.key === 'ArrowDown' && results.length > 0) {
-        e.preventDefault(); setFocusedIdx(0);
-        setTimeout(() => resultRefs.current.get(0)?.focus(), 0);
-      }
-      return;
-    }
-
-    // Results navigation
-    if (e.key === 'j' || e.key === 'ArrowDown') {
-      e.preventDefault();
-      setFocusedIdx((i) => Math.min(i + 1, results.length - 1));
-    }
-    if (e.key === 'k' || e.key === 'ArrowUp') {
-      e.preventDefault();
-      setFocusedIdx((i) => Math.max(0, i - 1));
-    }
-    if (e.key === 'Enter' && focusedIdx >= 0 && results[focusedIdx]) {
-      e.preventDefault();
-      onClose();
-    }
-    // Type to refocus input
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
-      inputRef.current?.focus();
-    }
+    if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
   };
 
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-20"
+    <div data-search-overlay="true" className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-20"
          onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="bg-[var(--bg-card)] rounded-xl shadow-2xl w-full max-w-xl mx-4 overflow-hidden border border-[var(--text-secondary)]/10"
            onMouseDown={(e) => e.stopPropagation()}>
@@ -114,7 +156,7 @@ export function SearchOverlay({ open, onClose, boardSlug, boardName }: Props) {
             </button>
           )}
           <span className="text-[10px] font-mono text-[var(--text-secondary)] border-l border-[var(--text-secondary)]/10 pl-2">
-            Enter 搜索 · Esc 关闭
+            实时搜索 · Esc 关闭
           </span>
         </div>
 
@@ -136,7 +178,12 @@ export function SearchOverlay({ open, onClose, boardSlug, boardName }: Props) {
                   key={item.id}
                   href={`/b/${item.boardSlug}/${item.threadId}`}
                   ref={(el) => { if (el) resultRefs.current.set(idx, el); }}
-                  onClick={onClose}
+                  onClick={() => {
+                    // Save search state + source page for return navigation
+                    sessionStorage.setItem(storageKey, JSON.stringify({ query, results, total, searched: true }));
+                    sessionStorage.setItem('came_from_search', boardSlug ? 'board' : 'home');
+                    onClose();
+                  }}
                   className={`block px-4 py-3 border-b border-[var(--text-secondary)]/5 transition-colors ${
                     idx === focusedIdx ? 'bg-[var(--bg-hover)] border-l-2 border-l-[var(--accent-yellow)]' : 'hover:bg-[var(--bg-hover)]'
                   }`}
@@ -156,7 +203,7 @@ export function SearchOverlay({ open, onClose, boardSlug, boardName }: Props) {
             </div>
           ) : query.length > 0 && !searched ? (
             <div className="py-8 text-center text-xs text-[var(--text-secondary)]">
-              按 Enter 搜索
+              输入关键词实时搜索
             </div>
           ) : null}
         </div>

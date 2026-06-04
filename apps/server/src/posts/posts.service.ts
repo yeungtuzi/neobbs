@@ -195,11 +195,11 @@ export class PostsService {
     if (typeof content === 'string') return content;
     if (typeof content === 'object' && content !== null) {
       const obj = content as Record<string, unknown>;
+      if (obj.json) return this.extractPlainText(obj.json);
+      if (typeof obj.html === 'string') return obj.html.replace(/<[^>]*>/g, '');
       if (obj.text) return String(obj.text);
       if (Array.isArray(obj.content)) {
-        return (obj.content as unknown[])
-          .map((c) => this.extractPlainText(c))
-          .join(' ');
+        return (obj.content as unknown[]).map((c) => this.extractPlainText(c)).join(' ');
       }
     }
     return '';

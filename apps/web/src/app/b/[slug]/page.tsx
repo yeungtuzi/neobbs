@@ -43,8 +43,14 @@ export default function BoardPage({
   useEffect(() => {
     const handler = () => setShowSearch(true);
     window.addEventListener('open-search', handler);
+    // Reopen search if returning from navigation with saved state
+    const restoreKey = `restore_search:${slug}`;
+    if (sessionStorage.getItem(restoreKey)) {
+      sessionStorage.removeItem(restoreKey);
+      setShowSearch(true);
+    }
     return () => window.removeEventListener('open-search', handler);
-  }, []);
+  }, [slug]);
 
   const handleCleanup = async () => {
     const from = parseInt(cleanupFrom), to = parseInt(cleanupTo);
